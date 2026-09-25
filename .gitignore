@@ -1,2 +1,60 @@
+## General
 _local
 .claude
+.env
+
+## User-specific files and IDE configurations
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.vs/
+
+## Build outputs (Compiled binaries)
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+
+## NuGet Packages (Should be restored dynamically, not committed)
+*.nupkg
+**/packages/*
+!**/packages/build/
+
+## Test results
+[Tt]est[Rr]esult*/
+
+## Python (pipeline/)
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+pipeline/**/target/
+pipeline/**/dbt_packages/
+pipeline/**/logs/
+
+## R (clean-r/)
+.Rhistory
+.RData
+.Rproj.user/
+clean-r/renv/library/
+clean-r/renv/local/
+clean-r/renv/lock/
+clean-r/renv/sandbox/
+clean-r/renv/staging/
+
+## Node (web/)
+node_modules/
+web/build/
+web/.react-router/
+*.local
+
+## Local environment settings (Secrets and personal overrides)
+appsettings.Development.json
+*.usersecrets
