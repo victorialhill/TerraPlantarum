@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="src/TerraPlantarum.Api/TerraPlantarum.Api.csproj" />
+  <Project Path="src/TerraPlantarum.Application/TerraPlantarum.Application.csproj" />
+  <Project Path="src/TerraPlantarum.Domain/TerraPlantarum.Domain.csproj" />
+  <Project Path="src/TerraPlantarum.Infrastructure/TerraPlantarum.Infrastructure.csproj" />
+</Solution>

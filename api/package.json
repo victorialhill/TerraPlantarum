@@ -1,0 +1,11 @@
+{
+  "name": "api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "dotnet run --project src/TerraPlantarum.Api --launch-profile https",
+    "build": "dotnet build TerraPlantarum.slnx -c Release",
+    "test": "dotnet test TerraPlantarum.slnx",
+    "lint": "dotnet format TerraPlantarum.slnx --verify-no-changes"
+  }
+}
