@@ -1,5 +1,16 @@
 name: terraplantarum
 
+x-dagster: &dagster
+  profiles: [pipeline]
+  restart: unless-stopped
+  entrypoint: ["/bin/sh", "/terraplantarum/entrypoint.sh"]
+  environment:
+    DAGSTER_HOME: /terraplantarum/dagster
+    DAGSTER_DB_NAME: ${DAGSTER_DB_NAME:?}
+    DAGSTER_DB_ROLE: ${DAGSTER_DB_ROLE:?}
+  secrets:
+    - dagster_db_password
+
 services:
   postgres:
     image: postgis/postgis:18-3.6
@@ -63,6 +74,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
   lakefs:
     image: treeverse/lakefs:1.87.0
     profiles: [infra]
@@ -129,6 +141,65 @@ services:
       timeout: 5s
       retries: 5
 
+  pipeline:
+    <<: *dagster
+    build: ../pipeline
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["dagster", "code-server", "start", "-h", "0.0.0.0", "-p", "4000", "-m", "pipeline.definitions"]
+    volumes:
+      - dagster-storage:/terraplantarum/dagster/storage
+      - ./dagster/dagster.yaml:/terraplantarum/dagster/dagster.yaml:ro
+      - ./dagster/entrypoint.sh:/terraplantarum/entrypoint.sh:ro
+      - ./lib/read-secret.sh:/terraplantarum/read-secret.sh:ro
+    healthcheck:
+      test: ["CMD", "dagster", "api", "grpc-health-check", "-p", "4000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dagster-webserver:
+    <<: *dagster
+    build: ./dagster
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pipeline:
+        condition: service_healthy
+    command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "/terraplantarum/dagster/workspace.yaml"]
+    volumes:
+      - dagster-storage:/terraplantarum/dagster/storage
+      - ./dagster/dagster.yaml:/terraplantarum/dagster/dagster.yaml:ro
+      - ./dagster/workspace.yaml:/terraplantarum/dagster/workspace.yaml:ro
+      - ./dagster/entrypoint.sh:/terraplantarum/entrypoint.sh:ro
+      - ./lib/read-secret.sh:/terraplantarum/read-secret.sh:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/server_info')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dagster-daemon:
+    <<: *dagster
+    build: ./dagster
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pipeline:
+        condition: service_healthy
+    command: ["dagster-daemon", "run", "-w", "/terraplantarum/dagster/workspace.yaml"]
+    volumes:
+      - ./dagster/dagster.yaml:/terraplantarum/dagster/dagster.yaml:ro
+      - ./dagster/workspace.yaml:/terraplantarum/dagster/workspace.yaml:ro
+      - ./dagster/entrypoint.sh:/terraplantarum/entrypoint.sh:ro
+      - ./lib/read-secret.sh:/terraplantarum/read-secret.sh:ro
+    healthcheck:
+      test: ["CMD", "/bin/sh", "/terraplantarum/entrypoint.sh", "dagster-daemon", "liveness-check"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 secrets:
   postgres_password:
     environment: POSTGRES_PASSWORD
@@ -163,6 +234,7 @@ volumes:
   lakefs-data:
   caddy-data:
   caddy-config:
+  dagster-storage:
 
 networks:
   storage:

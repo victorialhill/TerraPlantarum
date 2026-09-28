@@ -1,10 +1,11 @@
-# Smoke tests for the infra pipeline: every service is up and every access rule holds.
-# Needs the stack runing ('just up-infra'); run with 'just test-infra'. Requires Pester 5+
+# Smoke tests for the running stack: every service is up and every access rule holds.
+# Needs the stack running ('just up'); run with 'just test-infra'. Requires Pester 5+
+# Tests tagged 'pipeline' need the pipeline profile; exclude that tag to check infra alone.
 # Secrets never leave the containers: each check reads what it needs from /run/secrets inside them
 
 BeforeAll {
     $repoRoot = (Resolve-Path "$PSScriptRoot/../..").Path
-    $compose = @('compose', '-f', "$repoRoot/infra/docker-compose.yml", '--env-file', "$repoRoot/infra/.env", '--profile', 'infra')
+    $compose = @('compose', '-f', "$repoRoot/infra/docker-compose.yml", '--env-file', "$repoRoot/infra/.env", '--profile', '*')
 
     # Non-secret settings only.
     $settings = @{}
@@ -116,6 +117,78 @@ Describe 'lakeFS' {
     }
 }
 
+Describe 'Dagster' -Tag 'pipeline' {
+    BeforeAll {
+        # Posts a GraphQL query to the webserver through Caddy, as the UI does.
+        # The JSON body goes to curl on stdin, so it needs no shell quoting.
+        function Invoke-DagsterQuery([string] $Query, [hashtable] $Variables = @{}) {
+            $site = "dagster.$domain"
+            $body = @{ query = $Query; variables = $Variables } | ConvertTo-Json -Depth 10 -Compress
+            $response = $body | & $curl -sk --resolve "${site}:443:127.0.0.1" -H 'Content-Type: application/json' --data-binary '@-' "https://$site/graphql"
+            ($response -join "`n" | ConvertFrom-Json).data
+        }
+    }
+
+    It '<_> is healthy' -ForEach @('pipeline', 'dagster-webserver', 'dagster-daemon') {
+        docker @compose ps $_ --format '{{.Health}}' | Should -Be 'healthy'
+    }
+
+    It '<_> is not on the storage network' -ForEach @('pipeline', 'dagster-webserver', 'dagster-daemon') {
+        # getent exit code 2: name not found
+        (Invoke-InService $_ 'getent hosts seaweedfs > /dev/null; echo $?').Output | Should -Be '2'
+    }
+
+    It 'loads the pipeline code location' {
+        $query = '{ workspaceOrError { ... on Workspace { locationEntries { name loadStatus locationOrLoadError { __typename }}}}}'
+        $entry = (Invoke-DagsterQuery $query).workspaceOrError.locationEntries | Where-Object name -eq 'pipeline'
+        $entry.loadStatus | Should -Be 'LOADED'
+        $entry.locationOrLoadError.__typename | Should -Be 'RepositoryLocation'
+    }
+
+    Context 'materializing hello from the queue' {
+        BeforeAll {
+            $launch = 'mutation($params: ExecutionParams!) { launchRun(executionParams: $params) { __typename ... on LaunchRunSuccess { run { runId }} ... on PythonError { message }}}'
+            $params = @{
+                selector = @{
+                    repositoryLocationName = 'pipeline'
+                    repositoryName = '__repository__'
+                    jobName = '__ASSET_JOB'
+                    assetSelection = @(@{ path = @('hello') })
+                }
+            }
+            $launched = (Invoke-DagsterQuery $launch @{ params = $params }).launchRun
+            $runId = $launched.run.runId
+
+            # The daemon dequeues the run and the pipeline code server executes it.
+            $statusQuery = 'query($runId: ID!) { runOrError(runId: $runId) { ... on Run { status }}}'
+            $deadline = (Get-Date).AddSeconds(90)
+            do {
+                Start-Sleep -Seconds 2
+                $status = (Invoke-DagsterQuery $statusQuery @{ runId = $runId }).runOrError.status
+            } until (($status -in 'SUCCESS', 'FAILURE', 'CANCELED') -or ((Get-Date) -gt $deadline))
+        }
+
+        AfterAll {
+            if ($runId) {
+                Invoke-DagsterQuery 'mutation($runId: String!) { deleteRun(runId: $runId) { __typename }}' @{ runId = $runId } | Out-Null
+            }
+        }
+
+        It 'launches a run' {
+            $launched.__typename | Should -Be 'LaunchRunSuccess' -Because $launched.message
+        }
+
+        It 'finishes the run successfully' {
+            $status | Should -Be 'SUCCESS'
+        }
+
+        It 'records the materialization against that run' {
+            $query = '{ assetOrError(assetKey: { path: ["hello"] }) { ... on Asset { assetMaterializations(limit: 1) { runId }}}}'
+            (Invoke-DagsterQuery $query).assetOrError.assetMaterializations[0].runId | Should -Be $runId
+        }
+    }
+}
+
 # --resolve pins each site name to this machine, so no DNS entry is needed;
 # -k skips certificate trust because this checks routing not the local CA.
 Describe 'Caddy' {
@@ -136,5 +209,9 @@ Describe 'Caddy' {
 
     It 'redirects plain HTTP to HTTPS' {
         Get-Response "http://lakefs.$domain/" | Should -Match '^308 https://'
+    }
+
+    It 'serves the Dagster UI over HTTPS' -Tag 'pipeline' {
+        Get-Response "https://dagster.$domain/server_info" | Should -Match '^200'
     }
 }

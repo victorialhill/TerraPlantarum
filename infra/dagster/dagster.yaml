@@ -1,0 +1,29 @@
+# Dagster instance: shared by the webserver, the daemon, and runs in the pipeline container
+# DAGSTER_DB_PASSWORD is exported by entrypoint.sh from the dagster_db_password secret
+
+storage:
+  postgres:
+    postgres_db:
+      hostname: postgres
+      port: 5432
+      # dagster-postgres installs psycopg2, but SQLAlchemy 2.1 defaults postgresql:// to psycopg 3
+      scheme: postgresql+psycopg2
+      username:
+        env: DAGSTER_DB_ROLE
+      password:
+        env: DAGSTER_DB_PASSWORD
+      db_name:
+        env: DAGSTER_DB_NAME
+
+# Runs from the UI are queued; the daemon launches them.
+run_coordinator:
+  module: dagster
+  class: QueuedRunCoordinator
+
+# Each run is a subprocess of the pipeline code server
+run_launcher:
+  module: dagster
+  class: DefaultRunLauncher
+
+telemetry:
+  enabled: false

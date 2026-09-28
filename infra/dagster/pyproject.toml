@@ -1,0 +1,12 @@
+[project]
+name = "terraplantarum-dagster"
+version = "0.1.0"
+description = "Dagster webserver and daemon for Terra Plantarum"
+authors = [
+    { name = "Victoria Hill", email = "vhill@wanderrootllc.com" }
+]
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "dagster-postgres>=0.29.24",
+    "dagster-webserver>=1.13.24",
+]

@@ -15,3 +15,8 @@ seaweedfs.{$TERRAPLANTARUM_DOMAIN} {
 	import private_only
 	reverse_proxy seaweedfs:23646
 }
+
+dagster.{$TERRAPLANTARUM_DOMAIN} {
+	import private_only
+	reverse_proxy dagster-webserver:3000
+}
