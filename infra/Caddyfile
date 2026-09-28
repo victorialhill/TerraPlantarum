@@ -1,0 +1,17 @@
+# One file for every environment; only TERRAPLANTARUM_DOMAIN differs.
+# Operator UIs answer only private addresses; public requests get 403.
+
+(private_only) {
+	@public not remote_ip private_ranges
+	respond @public "Forbidden" 403
+}
+
+lakefs.{$TERRAPLANTARUM_DOMAIN} {
+	import private_only
+	reverse_proxy lakefs:8000
+}
+
+seaweedfs.{$TERRAPLANTARUM_DOMAIN} {
+	import private_only
+	reverse_proxy seaweedfs:23646
+}

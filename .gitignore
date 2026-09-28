@@ -2,6 +2,7 @@
 _local
 .claude
 .env
+CLAUDE.md
 
 ## User-specific files and IDE configurations
 *.suo
