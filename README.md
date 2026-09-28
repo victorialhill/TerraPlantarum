@@ -17,7 +17,7 @@ Phase 1 is the Habitat Engine. The plan lives in [`_docs/`](_docs/).
 
 ## Prerequisites
 
-[just](https://github.com/casey/just), Docker, .NET 10 SDK, [uv](https://docs.astral.sh/uv/), R 4.6, Node 24 with pnpm.
+[just](https://github.com/casey/just), Docker, .NET 10 SDK, [uv](https://docs.astral.sh/uv/), R 4.6, Node 24 with pnpm, PowerShell 7 with Pester 5+ (for `just test-infra`).
 
 ## Common tasks
 

@@ -1,0 +1,169 @@
+name: terraplantarum
+
+services:
+  postgres:
+    image: postgis/postgis:18-3.6
+    profiles: [infra]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:?}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      TERRAPLANTARUM_DB_NAME: ${TERRAPLANTARUM_DB_NAME:?}
+      TERRAPLANTARUM_DB_ROLE: ${TERRAPLANTARUM_DB_ROLE:?}
+      TERRAPLANTARUM_API_DB_ROLE: ${TERRAPLANTARUM_API_DB_ROLE:?}
+      DAGSTER_DB_NAME: ${DAGSTER_DB_NAME:?}
+      DAGSTER_DB_ROLE: ${DAGSTER_DB_ROLE:?}
+    secrets:
+      - postgres_password
+      - terraplantarum_db_password
+      - terraplantarum_api_db_password
+      - dagster_db_password
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./postgres/initdb/20-terraplantarum.sh:/docker-entrypoint-initdb.d/20-terraplantarum.sh:ro
+      - ./lib/read-secret.sh:/terraplantarum/read-secret.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.47
+    profiles: [infra]
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/terraplantarum/entrypoint.sh"]
+    command:
+      - mini
+      - -dir=/data
+      - -webdav=false
+      - -s3.port.iceberg=0
+      - -s3.port.lance=0
+      - -master.telemetry=false
+      - -admin.user=${SEAWEEDFS_ADMIN_USER:?}
+    environment:
+      S3_BUCKET: ${SEAWEEDFS_LAKE_BUCKET:?}
+    secrets:
+      - seaweedfs_s3_access_key
+      - seaweedfs_s3_secret_key
+      - seaweedfs_admin_password
+      - seaweedfs_jwt_signing_key
+      - seaweedfs_jwt_filer_signing_key
+      - seaweedfs_jwt_filer_signing_read_key
+    volumes:
+      - seaweedfs-data:/data
+      - ./seaweedfs/entrypoint.sh:/terraplantarum/entrypoint.sh:ro
+      - ./lib/read-secret.sh:/terraplantarum/read-secret.sh:ro
+    networks:
+      - storage
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  lakefs:
+    image: treeverse/lakefs:1.87.0
+    profiles: [infra]
+    restart: unless-stopped
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/terraplantarum/entrypoint.sh"]
+    command: ["run"]
+    environment:
+      LAKEFS_DATABASE_TYPE: local
+      LAKEFS_BLOCKSTORE_TYPE: s3
+      LAKEFS_BLOCKSTORE_S3_ENDPOINT: http://seaweedfs:8333
+      LAKEFS_BLOCKSTORE_S3_FORCE_PATH_STYLE: "true"
+      LAKEFS_BLOCKSTORE_S3_DISABLE_PRE_SIGNED: "true"
+      LAKEFS_BLOCKSTORE_S3_DISABLE_PRE_SIGNED_UI: "true"
+      LAKEFS_BLOCKSTORE_S3_DISCOVER_BUCKET_REGION: "false"
+      LAKEFS_INSTALLATION_USER_NAME: ${LAKEFS_ADMIN_USER:?}
+      LAKEFS_STATS_ENABLED: "false"
+    secrets:
+      - lakefs_auth_encrypt_secret_key
+      - lakefs_admin_access_key
+      - lakefs_admin_secret_key
+      - seaweedfs_s3_access_key
+      - seaweedfs_s3_secret_key
+    volumes:
+      - lakefs-data:/home/lakefs
+      - ./lakefs/entrypoint.sh:/terraplantarum/entrypoint.sh:ro
+      - ./lib/read-secret.sh:/terraplantarum/read-secret.sh:ro
+    networks:
+      - default
+      - storage
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8000/_health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2.11.4
+    profiles: [infra]
+    restart: unless-stopped
+    depends_on:
+      lakefs:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      TERRAPLANTARUM_DOMAIN: ${TERRAPLANTARUM_DOMAIN:?}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - default
+      - storage
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+secrets:
+  postgres_password:
+    environment: POSTGRES_PASSWORD
+  terraplantarum_db_password:
+    environment: TERRAPLANTARUM_DB_PASSWORD
+  terraplantarum_api_db_password:
+    environment: TERRAPLANTARUM_API_DB_PASSWORD
+  dagster_db_password:
+    environment: DAGSTER_DB_PASSWORD
+  seaweedfs_s3_access_key:
+    environment: SEAWEEDFS_S3_ACCESS_KEY
+  seaweedfs_s3_secret_key:
+    environment: SEAWEEDFS_S3_SECRET_KEY
+  seaweedfs_admin_password:
+    environment: SEAWEEDFS_ADMIN_PASSWORD
+  seaweedfs_jwt_signing_key:
+    environment: SEAWEEDFS_JWT_SIGNING_KEY
+  seaweedfs_jwt_filer_signing_key:
+    environment: SEAWEEDFS_JWT_FILER_SIGNING_KEY
+  seaweedfs_jwt_filer_signing_read_key:
+    environment: SEAWEEDFS_JWT_FILER_SIGNING_READ_KEY
+  lakefs_auth_encrypt_secret_key:
+    environment: LAKEFS_AUTH_ENCRYPT_SECRET_KEY
+  lakefs_admin_access_key:
+    environment: LAKEFS_ADMIN_ACCESS_KEY
+  lakefs_admin_secret_key:
+    environment: LAKEFS_ADMIN_SECRET_KEY
+
+volumes:
+  postgres-data:
+  seaweedfs-data:
+  lakefs-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  storage:
+    internal: true

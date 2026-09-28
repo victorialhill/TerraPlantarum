@@ -53,8 +53,8 @@ The pipeline follows medallion architecture. The architecture spec's Raw Input, 
 | Concern | Tool | Role in the pipeline |
 | --- | --- | --- |
 | File format | Parquet / GeoParquet | Every tier is Parquet; occurrences with coordinates are GeoParquet |
-| Object storage | MinIO | S3-compatible lake; bronze/silver/gold as bucket prefixes |
-| Lake versioning | lakeFS (open source) | Git-style branches and commits over the MinIO bucket; re-run a cleaning rule on a branch, diff, merge or discard. Chosen over DVC because it is a storage layer, not file pointers |
+| Object storage | SeaweedFS | S3-compatible lake; bronze/silver/gold as bucket prefixes. Chosen over MinIO, whose open-source edition was archived in April 2026 and ships no maintained images |
+| Lake versioning | lakeFS (open source) | Git-style branches and commits over the SeaweedFS bucket; re-run a cleaning rule on a branch, diff, merge or discard. Chosen over DVC because it is a storage layer, not file pointers |
 | Query and transform | DuckDB (+ spatial extension) | Reads Parquet in place; bronze → silver transforms and raster sampling prep. Spark deliberately not used at this scale |
 | Orchestration | Dagster | Asset-based model maps onto medallion tiers; each tier's tables are declared assets |
 | SQL transforms | dbt Core | Silver → gold as versioned, tested SQL against DuckDB or Postgres |
@@ -94,7 +94,7 @@ R beyond 1.1: species distribution modelling (ENMeval, biomod2), IUCN range metr
 One Git repository (monorepo), one folder per component, each using its own language-native tooling. No JavaScript monorepo tool (Turborepo, Nx): there is exactly one JS package, and those tools cannot see Python, R, or .NET.
 
 ```
-pki/
+TerraPlantarum/
   pipeline/      Python — Dagster, dbt, GX, ingestion, export (uv)
   clean-r/       R — CoordinateCleaner step, renv.lock, Dockerfile
   api/           C# — solution and projects
@@ -104,20 +104,20 @@ pki/
   justfile       cross-language task runner: just up, just pipeline, just test
 ```
 
-*Containers* — one docker-compose.yml with profiles, so infrastructure can run alone during development:
+*Containers* — one docker-compose.yml with profiles, so infrastructure can run alone during development. The Compose project is named `terraplantarum`, which prefixes every container, volume, and network, so service names carry no prefix of their own:
 
 | Group | Container | Role |
 | --- | --- | --- |
-| Infrastructure | minio | The lake |
-| Infrastructure | lakefs | Versioning in front of MinIO; single-node mode with its own local KV store |
-| Infrastructure | postgres | One PostGIS image, two databases: pki (gold) and dagster (run history) |
-| Infrastructure | caddy | Reverse proxy and TLS for the API, species page, Dagster UI, and lakeFS UI |
+| Infrastructure | seaweedfs | The lake; single-node `weed mini` |
+| Infrastructure | lakefs | Versioning in front of SeaweedFS; single-node mode with its own local KV store |
+| Infrastructure | postgres | One PostGIS image, two databases: terraplantarum (gold) and dagster (run history) |
+| Infrastructure | caddy | Reverse proxy and TLS for the API, species page, Dagster UI, lakeFS UI, and SeaweedFS admin UI; operator UIs private-only |
 | Pipeline | dagster-webserver | Dagster UI |
 | Pipeline | dagster-daemon | Schedules and run queue |
-| Pipeline | pki-pipeline | Python code location: ingestion, dbt, GX, export, DuckDB embedded |
-| Pipeline | pki-clean-r | R image with CoordinateCleaner; launched per run by Dagster Pipes, reads and writes Parquet, exits |
-| Serving | pki-api | .NET API |
-| Serving | pki-web | Built React app as static files (Caddy can serve these directly; separate container kept for clarity) |
+| Pipeline | pipeline | Python code location: ingestion, dbt, GX, export, DuckDB embedded |
+| Pipeline | clean-r | R image with CoordinateCleaner; launched per run by Dagster Pipes, reads and writes Parquet, exits |
+| Serving | api | .NET API |
+| Serving | web | Built React app as static files (Caddy can serve these directly; separate container kept for clarity) |
 
 *Set up at scaffold time, because each is painful to add later:*
 
@@ -172,7 +172,7 @@ Phase 1.1 is done when every requirement below is met for Anthurium. Requirement
 
 ### Phase 1.1 — Schema
 
-The schema is designed per tier. Bronze has no designed schema: it is the raw pulls, stored as delivered, partitioned by source and pull date. Silver is where the design effort goes; it is Parquet in MinIO, built by dbt models over DuckDB. Gold is the PostGIS serving schema on a separate Postgres instance from the WanderRoot accession database, loaded from silver. Table and column names are PKI's own; the Darwin Core mapping at the end is how they leave the system (R13).
+The schema is designed per tier. Bronze has no designed schema: it is the raw pulls, stored as delivered, partitioned by source and pull date. Silver is where the design effort goes; it is Parquet in SeaweedFS, built by dbt models over DuckDB. Gold is the PostGIS serving schema on a separate Postgres instance from the WanderRoot accession database, loaded from silver. Table and column names are PKI's own; the Darwin Core mapping at the end is how they leave the system (R13).
 
 **Conventions**
 
@@ -210,7 +210,7 @@ The schema is designed per tier. Bronze has no designed schema: it is the raw pu
 | --- | --- | --- |
 | observations | observation\_id, taxon\_id, parameter\_type, value\_min, value\_max, value\_categorical, unit, context, stats (JSON), source\_id, source\_type, extraction\_method, confidence, review\_status, observed\_at, run\_id | R6–R8, R21. The architecture spec's table, unchanged, plus a stats JSON holding n\_occurrences, median, p05, p25, p75, p95. JSON because other source types (literature, sensor) will not have percentiles. parameter\_type = variable\_id for habitat rows; source\_type = habitat\_calculated; confidence = provisional for 1.1 |
 | pipeline\_runs | run\_id, dagster\_run\_id, code\_version, lakefs\_commit, cleaning\_rules\_version, source\_versions (JSON), started\_at, finished\_at, status | R19. One row per Dagster run; source\_versions lists every source\_id consumed |
-| quality\_checks | check\_id, run\_id, tier, suite\_name, passed, summary (JSON), results\_uri | R20. One row per Great Expectations suite per run per tier. A failed row is what blocked promotion; results\_uri points at the Data Docs output in MinIO |
+| quality\_checks | check\_id, run\_id, tier, suite\_name, passed, summary (JSON), results\_uri | R20. One row per Great Expectations suite per run per tier. A failed row is what blocked promotion; results\_uri points at the Data Docs output in SeaweedFS |
 | releases | release\_id, version, title, doi, gbif\_derived\_dataset\_doi, license, run\_id, lakefs\_commit, archive\_uri, metadata\_uri, released\_at | R14, R17. One row per published dataset: the Zenodo DOI, the GBIF derived-dataset DOI, the output license, and where the Darwin Core Archive and its EML live. A release is cut from exactly one run |
 
 **Gold — PostGIS serving schema**
@@ -280,15 +280,15 @@ One milestone (`phase-1.1`). Issues are listed in execution order: each depends 
 **Stage 0 — Scaffold**
 
 1. **Monorepo skeleton** — folder layout, justfile stubs (`up`, `down`, `test`), README, code LICENSE, per-language .gitignore. *Done:* fresh clone, `just --list` works.
-2. **Compose: infrastructure profile** — minio, lakefs (single-node, local KV), postgres (PostGIS image; `pki` and `dagster` databases created by init script), caddy; `.env.example`. *Done:* all four reachable through Caddy.
-3. **Compose: pipeline profile** — dagster-webserver, dagster-daemon, pki-pipeline with `uv` and one hello-world asset. *Done:* asset materializes from the UI.
+2. **Compose: infrastructure profile** — seaweedfs, lakefs (single-node, local KV), postgres (PostGIS image; `terraplantarum` and `dagster` databases created by init script), caddy; `.env.example`. *Done:* lakeFS and the SeaweedFS admin UI reachable through Caddy; Postgres reachable on localhost only.
+3. **Compose: pipeline profile** — dagster-webserver, dagster-daemon, pipeline with `uv` and one hello-world asset. *Done:* asset materializes from the UI.
 4. **CI** — GitHub Actions: pytest, dbt parse, dotnet build, Compose build. R added at 27. *Done:* green on main.
 5. **pre-commit** — ruff, sqlfluff, dotnet format.
 6. **First five ADRs** — WCVP over COL; TCS concept relations; CHELSA only; R for cleaning; EF Core. (`docs`)
 
 **Stage 1 — Schema**
 
-7. **dbt project for silver** — dbt-duckdb configured against MinIO via lakeFS, `sources.yml` for bronze, empty models directory, `dbt parse` in CI. (R13)
+7. **dbt project for silver** — dbt-duckdb configured against SeaweedFS via lakeFS, `sources.yml` for bronze, empty models directory, `dbt parse` in CI. (R13)
 8. **Silver reference tables** — models and schema tests for `taxa`, `taxon_names`, `taxon_identifiers`, `taxon_concept_relations`, `growth_habit`, `variables`, `sources`; unique key on (name\_string, authorship, nomenclatural\_code); nullable `taxon_id`. (R10, R21)
 9. **Silver occurrence tables** — `occurrences` (GeoParquet, geometry column), `cleaning_rules`, `occurrence_cleaning`, `environmental_samples`; partition by genus, and by source for samples. (R9)
 10. **Silver run and observation tables** — `observations` (with `stats` JSON), `pipeline_runs`, `quality_checks`, `releases`. (R6, R19, R20, R14)
@@ -339,7 +339,7 @@ One milestone (`phase-1.1`). Issues are listed in execution order: each depends 
 40. **`/v1/resolve?name=`** — pg\_trgm over `canonical_name`, returns candidates with scores and the resolution path.
 41. **Species page: taxon and habitat** — React + Vite: accepted name, synonyms, growth habit, 'COL differs', profile table with counts and spread.
 42. **Species page: occurrence map** — MapLibre layer from the occurrences endpoint, cleaned vs. dropped styled differently.
-43. **Caddy routing and TLS** — API, web, Dagster, lakeFS behind hostnames. *Done:* species page loads over HTTPS from the Hetzner box.
+43. **Caddy routing and TLS** — API, web, Dagster, lakeFS behind hostnames. API and web are public; operator UIs (lakeFS, Dagster, SeaweedFS admin) answer only private addresses, with the same Caddyfile locally and in production. *Done:* species page loads over HTTPS from the Hetzner box, and operator UIs refuse public requests.
 
 **Stage 7 — Release**
 
