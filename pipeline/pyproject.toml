@@ -6,8 +6,16 @@ authors = [
     { name = "Victoria Hill", email = "vhill@wanderrootllc.com" }
 ]
 requires-python = ">=3.13,<3.14"
-dependencies = []
+dependencies = [
+    "dagster>=1.13.24",
+    "dagster-postgres>=0.29.24",
+]
 
 [build-system]
 requires = ["uv_build>=0.11.1,<0.12.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

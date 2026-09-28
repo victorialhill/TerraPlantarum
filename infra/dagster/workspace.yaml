@@ -1,0 +1,6 @@
+# Code locations the webserver and daemon load over gRPC. One entry per code server service.
+load_from:
+  - grpc_server:
+      host: pipeline
+      port: 4000
+      location_name: pipeline
