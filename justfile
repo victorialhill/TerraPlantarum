@@ -52,3 +52,7 @@ test-web:
 # Smoke-test the running stack (start it first with 'just up')
 test-infra:
     pwsh -NoProfile -Command 'Invoke-Pester -Configuration @{ Run = @{ Path = "infra/tests"; Exit = $true }; Output = @{ Verbosity = "Detailed" }}'
+
+# Run every pre-commit hook (ruff, sqlfluff, dotnet format) on all files
+lint:
+    prek run --all-files

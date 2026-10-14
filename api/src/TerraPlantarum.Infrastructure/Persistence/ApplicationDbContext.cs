@@ -1,5 +1,5 @@
-using TerraPlantarum.Application.Common.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using TerraPlantarum.Application.Common.Interfaces;
 
 namespace TerraPlantarum.Infrastructure.Persistence
 {
