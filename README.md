@@ -17,7 +17,9 @@ Phase 1 is the Habitat Engine. The plan lives in [`_docs/`](_docs/).
 
 ## Prerequisites
 
-[just](https://github.com/casey/just), Docker, .NET 10 SDK, [uv](https://docs.astral.sh/uv/), R 4.6, Node 24 with pnpm, PowerShell 7 with Pester 5+ (for `just test-infra`).
+[just](https://github.com/casey/just), Docker, .NET 10 SDK, [uv](https://docs.astral.sh/uv/), R 4.6, Node 24 with pnpm, PowerShell 7 with Pester 5+ (for `just test-infra`), [prek](https://prek.j178.dev/) (`uv tool install prek`).
+
+After cloning, run `prek install` once so the hooks run on every commit.
 
 ## Common tasks
 
@@ -26,6 +28,7 @@ just          # list recipes
 just up       # start the stack
 just down     # stop it
 just test     # run all tests
+just lint     # run the pre-commit hooks on every file
 ```
 
 ## License

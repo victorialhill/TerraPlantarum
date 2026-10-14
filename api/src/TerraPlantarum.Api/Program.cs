@@ -1,10 +1,10 @@
+using FluentValidation;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.EntityFrameworkCore;
 using TerraPlantarum.Application.Common.Behaviors;
 using TerraPlantarum.Application.Common.Exceptions;
 using TerraPlantarum.Infrastructure;
 using TerraPlantarum.Infrastructure.Persistence;
-using FluentValidation;
-using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 
 // Trust the X-Forwarded-For / X-Forwarded-Proto headers sent by the reverse proxy

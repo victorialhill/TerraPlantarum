@@ -1,8 +1,8 @@
-using TerraPlantarum.Application.Common.Interfaces;
-using TerraPlantarum.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using TerraPlantarum.Application.Common.Interfaces;
+using TerraPlantarum.Infrastructure.Persistence;
 
 namespace TerraPlantarum.Infrastructure
 {
