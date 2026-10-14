@@ -29,7 +29,7 @@ Project files mounted into containers live under `/terraplantarum/`, apart from 
 ## Consequences
 
 - No secret appears in `docker inspect` or in a container's configured environment. Wrapper-exported variables exist only in the service's own process.
-- A missing or empty secret fails loudly at start-up and names the secret, rather than starting a service unauthenticated (SeaweedFS) or creating a role with an unusable password (Postgres).
+- A missing or empty secret stops start-up with an error that names the secret. Without this check, SeaweedFS would start unauthenticated and Postgres would create a role with an unusable password.
 - A service must list a secret under its own `secrets:` to receive it; the top-level declaration alone is not enough.
 - SeaweedFS's admin password can only be passed as a flag, so it is visible in `ps` inside that container, though not in `docker inspect`.
 - A new service whose image cannot read secret files needs its own wrapper that loads `read-secret.sh`.
