@@ -32,7 +32,7 @@ Use SeaweedFS (`chrislusf/seaweedfs`) in single-process `weed mini` mode, and ha
 
 ## Consequences
 
-- Every write reaches the lake through lakeFS, so every change can be committed and versioned. The network enforces this, not convention alone.
+- Every write reaches the lake through lakeFS, so every change can be committed and versioned. The `storage` network enforces this: no other service can reach SeaweedFS.
 - The smoke tests (`just test-infra`) check each protection: anonymous S3 refused, unsigned filer reads and writes refused, admin login required, WebDAV closed, no internet route, and a lakeFS round trip.
 - lakeFS runs with `blockstore.s3.discover_bucket_region=false`, because SeaweedFS does not support GetBucketRegion.
 - gRPC between SeaweedFS components is not mutually authenticated. On one host with an internal network this adds little. If SeaweedFS ever spans more than one host, add gRPC mTLS as described in its `security.toml` template.

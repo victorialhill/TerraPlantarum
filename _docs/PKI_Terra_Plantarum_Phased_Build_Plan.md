@@ -10,7 +10,7 @@ The architecture spec's locked build order is taxonomy → observations schema �
 
 ## Phase 1 — Habitat Engine
 
-**Goal:** for one target group of species, turn verified occurrence points into a confidence-scored native habitat profile that does not exist anywhere today. This is the credibility artifact — the thing shown at the IAS roundtable and the first citable output.
+**Goal:** for one genus, turn cleaned occurrence points into a confidence-scored native habitat profile per species, shown on a species page and published as a versioned, citable dataset.
 
 **What it has to accomplish**
 
@@ -21,7 +21,7 @@ The architecture spec's locked build order is taxonomy → observations schema �
 - Aggregation into per-species profiles with honest uncertainty — ranges and confidence, never a bare number.
 - A species page that displays the result, and a citable, versioned artifact of the demo output.
 
-**Success looks like:** one genus, or the starting species plus its close neighbors, with a habitat profile that can be defended in front of botanists.
+**Success looks like:** every species in the genus with at least one cleaned occurrence has a habitat profile, each value traceable to its occurrences, sources and pipeline run.
 
 ### Phase 1.1 — Decisions and scope
 
@@ -79,7 +79,7 @@ The rule for language choice: the best tool for the job, where "best" includes w
 | Orchestration | Python | Dagster with the dbt and Great Expectations integrations | Decided |
 | Data quality | Python | Great Expectations Core; Pandera for geospatial checks GX cannot express | Decided |
 | Serving database | SQL | PostgreSQL 16+ with PostGIS; gold objects owned by dbt | Decided |
-| API | C# | ASP.NET Core minimal API on .NET 8+, EF Core, Npgsql + NetTopologySuite | Decided |
+| API | C# | ASP.NET Core minimal API on .NET 10, EF Core, Npgsql + NetTopologySuite | Decided |
 | Species page | TypeScript | React with Vite, MapLibre GL for the occurrence map; a standalone app consuming the API, so it is the first downstream consumer | Decided |
 | DwC-A and EML export | Python | Custom writer over silver Parquet: CSV cores and extensions, meta.xml, EML | Decided |
 | Deployment | YAML | Docker Compose on the Hetzner box, Caddy as reverse proxy; Kubernetes (k3s) deferred to Phase 3 | Decided |
@@ -100,7 +100,7 @@ TerraPlantarum/
   api/           C# — solution and projects
   web/           React app (npm)
   infra/         docker-compose.yml, Caddyfile, .env.example
-  docs/          plan, schema, ADRs
+  _docs/         plan, schema, ADRs
   justfile       cross-language task runner: just up, just pipeline, just test
 ```
 
@@ -124,7 +124,7 @@ TerraPlantarum/
 - GitHub as the public home of the code (R18), with the Zenodo integration so tagged releases mint DOIs automatically. Gitea can mirror it for a sovereign copy.
 - CI from day one via GitHub Actions: pytest, dbt tests, testthat, dotnet test, and a Compose build. Not deployment yet — just keeping four language stacks honest.
 - pre-commit with ruff for Python, a SQL formatter, and dotnet format.
-- Architecture Decision Records in docs/adr/, starting with the decisions already made here: WCVP over COL, TCS concept relations, CHELSA-only in 1.1, R for cleaning, EF Core.
+- Architecture Decision Records in _docs/adr/, starting with the decisions already made here: WCVP over COL, TCS concept relations, CHELSA-only in 1.1, R for cleaning, EF Core.
 - .env.example naming every secret, and Compose secrets so nothing lands in Git.
 
 ### Phase 1.1 — Requirements
@@ -144,8 +144,8 @@ Phase 1.1 is done when every requirement below is met for Anthurium. Requirement
 
 **Darwin Core (interoperability)**
 
-- R9. Every occurrence must retain its Darwin Core terms end to end: at minimum occurrenceID, datasetKey, basisOfRecord, decimalLatitude, decimalLongitude, coordinateUncertaintyInMeters, establishmentMeans, eventDate, and recordedBy.
-- R10. Taxon records must use Darwin Core Taxon terms (scientificName, scientificNameAuthorship, taxonRank, taxonomicStatus, acceptedNameUsageID) with COL IDs as the identifiers.
+- R9. Every occurrence must retain its Darwin Core terms end to end: at minimum occurrenceID, datasetKey, basisOfRecord, decimalLatitude, decimalLongitude, coordinateUncertaintyInMeters, establishmentMeans, eventDate, recordedBy, dateIdentified, and identifiedBy, plus the identification history extension where the publisher provides it (ADR 0011).
+- R10. Taxon records must use Darwin Core Taxon terms (taxonID, scientificName, scientificNameAuthorship, taxonRank, taxonomicStatus, acceptedNameUsageID, parentNameUsageID, scientificNameID, nameAccordingTo). taxonID is the permanent PKI taxon ID as a resolvable HTTPS URI; scientificNameID is the IPNI ID; nameAccordingTo is the WCVP release. COL, WCVP, IPNI and POWO IDs are exported as identifiers from taxon\_identifiers.
 - R11. Computed profile values must be exportable as MeasurementOrFact rows (measurementType, measurementValue, measurementUnit, measurementMethod) attached to the taxon, so a Darwin Core Archive can be produced.
 - R12. Growth habit must be stored as a MeasurementOrFact with a controlled vocabulary, since Darwin Core has no dedicated term; the vocabulary (EpiList's categories as the base) is documented in the archive metadata.
 - R13. Internal schema stays PKI's own; Darwin Core is enforced at the export and API layer via a documented 1:1 field mapping, per the architecture spec's aligned-not-native principle.
@@ -160,7 +160,7 @@ Phase 1.1 is done when every requirement below is met for Anthurium. Requirement
 
 **Provenance and quality**
 
-- R19. Every pipeline run is a lakeFS commit with the Dagster run ID, code version, source dataset versions (COL release, CHELSA version, SoilGrids version, GBIF download DOI), and cleaning-rule version recorded.
+- R19. Every pipeline run is a lakeFS commit with the Dagster run ID, code version, source dataset versions (WCVP release, COL release, CHELSA version, SoilGrids version, GBIF download DOI), and cleaning-rule version recorded.
 - R20. Great Expectations suites run on bronze and silver; a failing suite blocks promotion to the next tier and the failure is logged, not silently dropped.
 - R21. No observation is ever updated or deleted; a re-run produces new observations with a new source\_id.
 
@@ -193,13 +193,13 @@ The schema is designed per tier. Bronze has no designed schema: it is the raw pu
 | variables | variable\_id, label, unit, source\_id, description | Registry of every sampled environmental variable |
 | sources | source\_id, source\_type, name, version, license, citation, doi, rights\_holder, reliability\_score, run\_id (nullable) | One row per dataset version: each WCVP and COL release, each CHELSA and SoilGrids version, each GBIF dataset key, and one row per pipeline run (source\_type = pipeline\_run, run\_id set) so computed observations have a source like any other. rights\_holder and citation are what R17 propagates to the export |
 | taxon\_identifiers | taxon\_id, name\_id (nullable), system, external\_id, source\_id | Crosswalk to every external ID: COL, IPNI, WCVP, POWO, GBIF. name\_id set when the external ID is for a specific name usage rather than the concept. This is how GBIF occurrences (keyed by COL) find their PKI taxon |
-| taxon\_concept\_relations | from\_taxon\_id, to\_taxon\_id, relation, according\_to (source\_id), reviewed, run\_id | TDWG Taxon Concept Schema model. relation ∈ congruent, includes, included\_in, overlaps, excludes (RCC-5). Written when a new WCVP release changes a circumscription: rename = congruent, no new taxon; merge = two included\_in rows, automatic; split = included\_in rows with reviewed = false, occurrences stay with the old taxon until a human reassigns. Empty on the first release. Gold views follow reviewed relations to the current concept |
+| taxon\_concept\_relations | from\_taxon\_id, to\_taxon\_id, relation, according\_to (source\_id), basis, reference, run\_id | ADR 0007. TDWG Taxon Concept Schema model. relation ∈ congruent, includes, included\_in, overlaps, excludes (RCC-5). Written automatically when a new WCVP release changes a circumscription: rename = congruent, no new taxon; merge = two included\_in rows; split = included\_in rows, with occurrences placed by ADR 0011. Empty on the first release. Gold views follow relations to the current concept |
 
 **Silver — occurrence**
 
 | Table | Key columns | Notes |
 | --- | --- | --- |
-| occurrences | occurrence\_id (GBIF key), taxon\_id, verbatim\_scientific\_name, gbif\_taxon\_key, dataset\_key, basis\_of\_record, occurrence\_status, decimal\_latitude, decimal\_longitude, coordinate\_uncertainty\_m, elevation\_m, country\_code, establishment\_means, event\_date, recorded\_by, gbif\_issues, license, run\_id | R9. GeoParquet with a geometry column. Every occurrence pulled, cleaned or not. verbatim\_scientific\_name and gbif\_taxon\_key keep the name as recorded so the resolution to taxon\_id is auditable; elevation\_m (dwc:minimumElevationInMeters) is kept because recorded elevation often beats raster-inferred elevation in Andean terrain. occurrence\_status matters: GBIF carries absence records and they must never reach a habitat profile. country\_code enables the standard country/coordinate mismatch check. Coordinates are WGS84 as GBIF delivers them |
+| occurrences | occurrence\_id (GBIF key), taxon\_id, verbatim\_scientific\_name, gbif\_taxon\_key, dataset\_key, basis\_of\_record, occurrence\_status, decimal\_latitude, decimal\_longitude, coordinate\_uncertainty\_m, elevation\_m, country\_code, establishment\_means, event\_date, recorded\_by, date\_identified, identified\_by, assignment\_basis, gbif\_issues, license, run\_id | R9. GeoParquet with a geometry column. Every occurrence pulled, cleaned or not. verbatim\_scientific\_name and gbif\_taxon\_key keep the name as recorded so the resolution to taxon\_id is auditable; date\_identified, identified\_by and assignment\_basis record how a record was placed after a split (ADR 0011); elevation\_m (dwc:minimumElevationInMeters) is kept because recorded elevation often beats raster-inferred elevation in Andean terrain. occurrence\_status matters: GBIF carries absence records and they must never reach a habitat profile. country\_code enables the standard country/coordinate mismatch check. Coordinates are WGS84 as GBIF delivers them |
 | cleaning\_rules | rule\_id, version, description, parameters | R4. The rule set is data, not just code, so a run can cite which version it applied |
 | occurrence\_cleaning | occurrence\_id, rule\_id, passed, run\_id | One row per occurrence per rule. Survivors are occurrences with no failed row; per-rule attrition counts come from this table |
 | environmental\_samples | occurrence\_id, variable\_id, value, source\_id, run\_id | R5, R11 (occurrence level). One row per surviving occurrence per variable |
@@ -220,7 +220,7 @@ Gold is the subset of silver the API needs, loaded into Postgres by dbt, plus co
 - `taxa`, `taxon_names`, `growth_habit`, `sources`, `pipeline_runs`, `taxon_identifiers`, `releases` loaded as-is.
 - `occurrences` with a PostGIS `geom` column (SRID 4326) and a GiST index; only survivors plus a `cleaned` flag, so the map can show both.
 - `observations` append-only, indexed on (taxon\_id, parameter\_type).
-- `habitat_profiles` materialized view: latest observation per taxon per variable, with stats unpacked into columns. This is what the species page reads.
+- `habitat_profiles` materialized view: latest observation per taxon per variable, with stats unpacked into columns, plus the replacing taxon for any concept with a relation to a newer one (ADR 0007). This is what the species page reads.
 - `taxon_summary` materialized view: per taxon, raw occurrence count, cleaned count, whether a profile exists (R7).
 - `taxon_classification` materialized view: the parent chain flattened into kingdom, phylum, class, order, family, genus columns per taxon, so Darwin Core's flat higher-taxonomy terms export without a recursive query and the API can filter by any rank.
 
@@ -307,7 +307,7 @@ One milestone (`phase-1.1`). Issues are listed in execution order: each depends 
 20. **taxon\_crosschecks model** — dbt model of WCVP/COL accepted-name disagreements. (R1)
 21. **EpiList to bronze** — the Anthurium subset of the Zotz et al. checklist with its categories and citation. (R2)
 22. **Growth habit load and lifeform mapping** — the WCVP-lifeform → vocabulary mapping table (the TODO), then one `growth_habit` row per taxon per source. (R2, R12)
-23. **Release diff and taxon\_concept\_relations** — diff accepted names between two WCVP releases (test with two historical ones), write congruent/included\_in rows, flag splits `reviewed = false`. May slip to 1.2 without blocking anything below. (R19)
+23. **Release diff and taxon\_concept\_relations** — diff accepted names between two WCVP releases (test with two historical ones), write congruent/included\_in rows, place split occurrences by ADR 0011. May slip to 1.2 without blocking anything below. (R19)
 
 **Stage 3 — Occurrences**
 
@@ -334,7 +334,7 @@ One milestone (`phase-1.1`). Issues are listed in execution order: each depends 
 
 **Stage 6 — Serving**
 
-38. **API skeleton and `/v1/taxa/{id}`** — minimal API, EF Core keyless entities over gold, provenance envelope (source count, run, last calculated). (R15)
+38. **API skeleton and `/v1/taxa/{id}`** — minimal API, EF Core keyless entities over gold, provenance envelope (source count, run, last calculated). A replaced taxon ID returns its record, the current concept and the relation, never not-found (ADR 0007). (R15)
 39. **`/v1/taxa/{id}/habitat` and `/v1/taxa/{id}/occurrences`** — profile with stats and provenance; occurrences as GeoJSON. (R15)
 40. **`/v1/resolve?name=`** — pg\_trgm over `canonical_name`, returns candidates with scores and the resolution path.
 41. **Species page: taxon and habitat** — React + Vite: accepted name, synonyms, growth habit, 'COL differs', profile table with counts and spread.
@@ -369,20 +369,20 @@ One milestone (`phase-1.1`). Issues are listed in execution order: each depends 
 
 ## Phase 2 — Literature and the observation commons
 
-**Goal:** get the first non-computed observations flowing, so the weighted aggregation has more than one source type to weigh and the system can answer "what do we know, how well, and where are the gaps" for real.
+**Goal:** extract values from journal articles into the observations table through a human review step, and combine them with computed habitat values by weighted aggregation that flags conflicts between sources.
 
 **What it has to accomplish**
 
-- Journal archive extraction with a human review loop, so literature-derived values enter the observations table with appropriate confidence.
-- Weighted aggregation and conflict detection made real rather than theoretical — calibrated weights, a conflict threshold, and a review queue.
+- Journal archive extraction with a human review loop, so literature-derived values enter the observations table with a recorded confidence.
+- Weighted aggregation and conflict detection: calibrated weights, a conflict threshold, and a review queue.
 - Conservation status attached to every taxon.
 - An API v1 surface stable enough for downstream consumers to build on.
 
-**Success looks like:** a species page where habitat, literature, and conservation data sit side by side with visible confidence and traceable sources.
+**Success looks like:** a species page shows computed habitat values, literature-derived values and conservation status together, each with its confidence and source.
 
 ## Phase 3 — Contribution and feeder systems
 
-**Goal:** open the write path. PKI stops being something only its builder populates and becomes infrastructure other people contribute to.
+**Goal:** add write endpoints so verified contributors outside WanderRoot can submit observations, each weighted by the contributor's trust level.
 
 **What it has to accomplish**
 
@@ -392,11 +392,11 @@ One milestone (`phase-1.1`). Issues are listed in execution order: each depends 
 - The first TC protocol inference: direct lookup, taxonomic transfer, and habitat-similarity transfer, synthesized into a starting point with explicit reasoning. This becomes buildable only once Phase 1 profiles and Phase 2 protocol extractions both exist.
 - Governance formalized, with a second society onboarded as the trigger.
 
-**Success looks like:** observations arriving from contributors who are not WanderRoot, and a computed answer changing because of them.
+**Success looks like:** observations submitted by contributors outside WanderRoot are stored with their provenance, and the aggregated values that include them are recalculated.
 
 ## Phase 4 — Intelligence and scale
 
-**Goal:** the computed layer earns its name, and the infrastructure outgrows its founding genus and founding society.
+**Goal:** add a natural-language query interface, related-species and gap-analysis endpoints, and conservation tooling, and run the pipeline on taxa outside Araceae.
 
 **What it has to accomplish**
 
@@ -406,11 +406,10 @@ One milestone (`phase-1.1`). Issues are listed in execution order: each depends 
 - Expansion beyond Araceae.
 - Transition to independent multi-society governance once three or more societies contribute.
 
-**Success looks like:** researchers and botanical gardens using PKI outputs in their own work and citing the methodology.
+**Success looks like:** the query interface answers only from database contents and returns "I don't know" otherwise, and the pipeline produces habitat profiles for at least one genus outside Araceae.
 
 ## Open questions before drilling into Phase 1
 
 - [ ] Phase 1 scope: one species done properly, or one genus done adequately? They need different amounts of taxonomy and occurrence-cleaning work.
 - [ ] Is the epiphyte/hemiepiphyte habitat definition already settled, or is deciding it a Phase 1 deliverable?
 - [ ] Do the terrestrial and epiphyte pipelines get built together or sequentially?
-- [ ] How much of the roundtable demo is real versus mocked?

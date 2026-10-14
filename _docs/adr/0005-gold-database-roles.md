@@ -14,7 +14,7 @@ By default Postgres lets every role connect to every database, and a superuser s
 
 ## Decision
 
-The init script (`infra/postgres/initdb/20-terraplantarum.sh`) runs once, on the first start of an empty volume, and creates:
+Each service gets its own role: an owner for gold, a read-only role for the API, and an owner for the Dagster database. The init script (`infra/postgres/initdb/20-terraplantarum.sh`) creates them once, on the first start of an empty volume:
 
 - `TERRAPLANTARUM_DB_ROLE`, which owns the gold database and everything dbt creates in it.
 - `TERRAPLANTARUM_API_DB_ROLE`, which can connect to gold and select from whatever the owner creates, in any schema, through `ALTER DEFAULT PRIVILEGES FOR ROLE <owner>`. It cannot create objects.
