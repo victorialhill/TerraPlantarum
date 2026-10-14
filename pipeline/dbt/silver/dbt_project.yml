@@ -1,0 +1,10 @@
+name: silver
+version: "1.0.0"
+profile: silver
+
+models:
+  silver:
+    +materialized: external
+
+flags:
+  send_anonymous_usage_stats: false

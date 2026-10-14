@@ -1,0 +1,9 @@
+sources:
+  - name: wcvp
+    description: World Checklist of Vascular Plants release files; the taxonomic authority
+  - name: col
+    description: Catalogue of Life eXtended Release name usages, matched onto WCVP taxa
+  - name: epilist
+    description: EpiList checklist of vascular epiphytes (Zotz et al.) with its growth-habit categories
+  - name: gbif
+    description: GBIF occurrence download as delivered in DwC-A

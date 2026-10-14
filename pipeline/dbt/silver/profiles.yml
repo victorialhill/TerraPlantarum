@@ -1,0 +1,16 @@
+silver:
+  target: lake
+  outputs:
+    lake:
+      type: duckdb
+      path: ":memory:"
+      extensions:
+        - httpfs
+      secrets:
+        - type: s3
+          key_id: "{{ env_var('DBT_ENV_SECRET_LAKEFS_ACCESS_KEY') }}"
+          secret: "{{ env_var('DBT_ENV_SECRET_LAKEFS_SECRET_KEY') }}"
+          endpoint: "{{ env_var('LAKEFS_S3_ENDPOINT') }}"
+          url_style: path
+          use_ssl: false
+      external_root: "s3://{{ env_var('LAKEFS_REPOSITORY') }}/{{ env_var('LAKEFS_BRANCH') }}/silver"
